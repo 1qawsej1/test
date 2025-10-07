@@ -1280,7 +1280,8 @@
       $('simulateBtn').addEventListener('click', () => simulate(false));
       $('resetBtn').addEventListener('click', () => clearImpact());
       $('animateBtn').addEventListener('click', () => simulate(true));
-      [massR, speedR, densityR, angleR, deflectAngleR, latR, lngR, deflectMethod].forEach(el => el.addEventListener('input', () => debouncedSimulate(false)));
+      [massR, speedR, densityR, angleR, deflectAngleR, latR, lngR].forEach(el => el.addEventListener('input', () => debouncedSimulate(false)));
+      deflectMethod.addEventListener('change', () => debouncedSimulate(false));
       simulate(false);
 
       document.addEventListener('keydown', (e) => {
