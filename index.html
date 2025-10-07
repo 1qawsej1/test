@@ -52,7 +52,7 @@
       transition: transform 0.3s ease-in-out;
     }
     .globe-container.shifted {
-      transform: translateX(-210px); /* Half of panel width to keep globe centered */
+      transform: translateX(-210px);
     }
     #cesiumContainer {
       position: relative;
@@ -79,7 +79,7 @@
     .panel {
       position: absolute;
       top: 0;
-      right: -420px; /* Hidden by default */
+      right: -420px;
       width: 420px;
       height: 100%;
       background: var(--card);
@@ -141,7 +141,7 @@
       text-align: right;
       flex-shrink: 0;
     }
-    input[type=range], input[type=text] {
+    input[type=range], input[type=text], select {
       width: 100%;
       max-width: 200px;
       padding: 6px;
@@ -243,7 +243,7 @@
       .value {
         min-width: 60px;
       }
-      input[type=range], input[type=text] {
+      input[type=range], input[type=text], select {
         max-width: 100%;
       }
       .buttons {
@@ -309,7 +309,7 @@
     #toolbar {
       position: absolute;
       top: 10px;
-      right: 60px; /* Adjusted to avoid overlap with toggle button */
+      right: 60px;
       z-index: 500;
     }
   </style>
@@ -343,6 +343,28 @@
             <div class="label">Density (kg/m³)</div>
             <div style="flex:1"><input id="densityRange" type="range" min="1000" max="8000" step="100" value="3000"></div>
             <div class="value" id="densityVal">3,000</div>
+          </div>
+          <div class="row">
+            <div class="label">Impact Angle (°)</div>
+            <div style="flex:1"><input id="angleRange" type="range" min="10" max="90" step="1" value="45"></div>
+            <div class="value" id="angleVal">45°</div>
+          </div>
+          <div class="row">
+            <div class="label">Deflection Angle (°)</div>
+            <div style="flex:1"><input id="deflectAngleRange" type="range" min="0" max="30" step="0.1" value="0"></div>
+            <div class="value" id="deflectAngleVal">0.0°</div>
+          </div>
+          <div class="row">
+            <div class="label">Country</div>
+            <select id="countrySelect" style="width:100%; padding:6px; border-radius:6px; background:var(--glass); color:inherit; border:1px solid rgba(255,255,255,0.06);">
+              <option value="">Select Country</option>
+            </select>
+          </div>
+          <div class="row">
+            <div class="label">State/Region</div>
+            <select id="stateSelect" style="width:100%; padding:6px; border-radius:6px; background:var(--glass); color:inherit; border:1px solid rgba(255,255,255,0.06);">
+              <option value="">Select State</option>
+            </select>
           </div>
           <div class="row">
             <div class="label">Latitude</div>
@@ -599,6 +621,10 @@
       const massR = $('massRange'), massV = $('massVal');
       const speedR = $('speedRange'), speedV = $('speedVal');
       const densityR = $('densityRange'), densityV = $('densityVal');
+      const angleR = $('angleRange'), angleV = $('angleVal');
+      const deflectAngleR = $('deflectAngleRange'), deflectAngleV = $('deflectAngleVal');
+      const countrySel = $('countrySelect');
+      const stateSel = $('stateSelect');
       const latR = $('latRange'), latV = $('latVal');
       const lngR = $('lngRange'), lngV = $('lngVal');
       const deflectMethod = $('deflectMethod');
@@ -614,11 +640,79 @@
         massV.textContent = fmt(Number(massR.value) || 1e9);
         speedV.textContent = fmt(Number(speedR.value) || 20000);
         densityV.textContent = fmt(Number(densityR.value) || 3000);
+        angleV.textContent = fmtFixed(Number(angleR.value) || 45, 1) + '°';
+        deflectAngleV.textContent = fmtFixed(Number(deflectAngleR.value) || 0, 1) + '°';
         latV.textContent = Number(latR.value || 0).toFixed(4) + '°';
         lngV.textContent = Number(lngR.value || 0).toFixed(4) + '°';
       }
-      [massR, speedR, densityR, latR, lngR].forEach(el => el.addEventListener('input', updateDisplays));
+      [massR, speedR, densityR, angleR, deflectAngleR, latR, lngR].forEach(el => el.addEventListener('input', updateDisplays));
       updateDisplays();
+
+      // --- Country and State Selection ---
+      async function fetchCountries() {
+        try {
+          const res = await fetch('https://restcountries.com/v3.1/all?fields=name,cca2,latlng');
+          if (!res.ok) throw new Error('Country fetch failed');
+          const data = await res.json();
+          const countries = data.sort((a, b) => a.name.common.localeCompare(b.name.common));
+          countrySel.innerHTML = '<option value="">Select Country</option>';
+          countries.forEach(country => {
+            const opt = document.createElement('option');
+            opt.value = JSON.stringify({ code: country.cca2, latlng: country.latlng });
+            opt.textContent = country.name.common;
+            countrySel.appendChild(opt);
+          });
+        } catch (e) {
+          console.error('Country fetch error:', e);
+          countrySel.innerHTML = '<option value="">Error fetching countries</option>';
+        }
+      }
+
+      async function fetchStates(countryCode) {
+        try {
+          const res = await fetch(`https://api.geonames.org/children?geonameId=${countryCode}&username=demo&style=full`);
+          if (!res.ok) throw new Error('State fetch failed');
+          const data = await res.json();
+          stateSel.innerHTML = '<option value="">Select State</option>';
+          if (data.geonames && data.geonames.length > 0) {
+            data.geonames.forEach(state => {
+              const opt = document.createElement('option');
+              opt.value = JSON.stringify({ lat: state.lat, lng: state.lng });
+              opt.textContent = state.name;
+              stateSel.appendChild(opt);
+            });
+          } else {
+            stateSel.innerHTML = '<option value="">No states available</option>';
+          }
+        } catch (e) {
+          console.error('State fetch error:', e);
+          stateSel.innerHTML = '<option value="">Error fetching states</option>';
+        }
+      }
+
+      countrySel.addEventListener('change', async (e) => {
+        if (!e.target.value) {
+          stateSel.innerHTML = '<option value="">Select State</option>';
+          return;
+        }
+        const { code, latlng } = JSON.parse(e.target.value);
+        latR.value = latlng[0];
+        lngR.value = latlng[1];
+        updateDisplays();
+        await fetchStates(code);
+        debouncedSimulate(false);
+      });
+
+      stateSel.addEventListener('change', (e) => {
+        if (!e.target.value) return;
+        const { lat, lng } = JSON.parse(e.target.value);
+        latR.value = lat;
+        lngR.value = lng;
+        updateDisplays();
+        debouncedSimulate(false);
+      });
+
+      fetchCountries();
 
       // --- Physics ---
       function computeAsteroidDiameter(massKg, density) {
@@ -628,21 +722,20 @@
         return isFinite(radius) ? 2 * radius : 0;
       }
 
-      function computeKE(massKg, speedMs) {
-        return 0.5 * massKg * speedMs * speedMs;
+      function computeKE(massKg, speedMs, angleDeg, deflectAngleDeg) {
+        const effectiveSpeed = speedMs * Math.cos(Cesium.Math.toRadians(deflectAngleDeg));
+        return 0.5 * massKg * effectiveSpeed * effectiveSpeed;
       }
 
-      function estimateCraterDiameterKm(keJ) {
-        const angleDeg = 45; // Fixed angle
-        const angleFactor = Math.sin(angleDeg * Math.PI / 180);
+      function estimateCraterDiameterKm(keJ, angleDeg) {
+        const angleFactor = Math.sin(Cesium.Math.toRadians(angleDeg));
         const effectiveKE = keJ * angleFactor;
         const C = 0.2;
         const D_m = C * Math.pow(effectiveKE, 0.25);
         return isFinite(D_m) ? D_m / 1000 : 0;
       }
 
-      function estimateAirburstAltitude(diameter_m, speedMs, density) {
-        const angleDeg = 45; // Fixed angle
+      function estimateAirburstAltitude(diameter_m, speedMs, density, angleDeg) {
         const baseAltitude = 50;
         const sizeFactor = Math.min(25 / diameter_m, 2);
         const speedFactor = Math.min(12000 / speedMs, 1.5);
@@ -652,48 +745,49 @@
         return Math.min(Math.max(altitude, 10), 100);
       }
 
-      function estimateThermalRadiusKm(keJ) {
+      function estimateThermalRadiusKm(keJ, angleDeg) {
+        const angleFactor = Math.sin(Cesium.Math.toRadians(angleDeg));
         const C_thermal = 0.05;
-        const R_m = C_thermal * Math.pow(keJ, 1/3);
+        const R_m = C_thermal * Math.pow(keJ * angleFactor, 1/3);
         return isFinite(R_m) ? R_m / 1000 : 0;
       }
 
-      function estimateSeismicMagnitude(keJ) {
-        const logE = Math.log10(keJ);
+      function estimateSeismicMagnitude(keJ, angleDeg) {
+        const angleFactor = Math.sin(Cesium.Math.toRadians(angleDeg));
+        const logE = Math.log10(keJ * angleFactor);
         const M = (logE - 4.8) / 1.5;
         return Math.max(0, Math.min(M, 12));
       }
 
-      function checkAtmosphericDisintegration(diameter_m, speedMs, density) {
-        const angleDeg = 45; // Fixed angle
+      function checkAtmosphericDisintegration(diameter_m, speedMs, density, angleDeg) {
         return (
           diameter_m < 25 &&
           (angleDeg > 60 || speedMs < 12000 || density < 2000)
         );
       }
 
-      function computeImpact(massKg, speedMs, density, deflectPct, fragPct) {
-        const effectiveSpeed = speedMs * (1 - deflectPct / 100);
+      function computeImpact(massKg, speedMs, density, angleDeg, deflectAngleDeg, deflectPct, fragPct) {
+        const effectiveSpeed = speedMs * (1 - deflectPct / 100) * Math.cos(Cesium.Math.toRadians(deflectAngleDeg));
         const effectiveMass = massKg * (1 - fragPct / 100);
         const diameter_m = computeAsteroidDiameter(effectiveMass, density);
-        const ke = computeKE(effectiveMass, effectiveSpeed);
-        const disintegrates = checkAtmosphericDisintegration(diameter_m, effectiveSpeed, density);
+        const ke = computeKE(effectiveMass, speedMs, angleDeg, deflectAngleDeg);
+        const disintegrates = checkAtmosphericDisintegration(diameter_m, effectiveSpeed, density, angleDeg);
 
         if (disintegrates) {
-          const airburst_km = estimateAirburstAltitude(diameter_m, effectiveSpeed, density);
+          const airburst_km = estimateAirburstAltitude(diameter_m, effectiveSpeed, density, angleDeg);
           return {
             diameter_m, ke, airburst_km, crater_km: 0, severe_km: 0, heavy_km: 0,
             moderate_km: 0, mild_km: 0, thermal_km: 0, seismic_mag: 0, disintegrates: true
           };
         }
 
-        const crater_km = estimateCraterDiameterKm(ke);
+        const crater_km = estimateCraterDiameterKm(ke, angleDeg);
         const severe_km = Math.max(0.5, crater_km * 0.6);
         const heavy_km = Math.max(severe_km * 1.8, crater_km * 2.0);
         const moderate_km = Math.max(heavy_km * 1.9, crater_km * 5.0);
         const mild_km = Math.max(moderate_km * 2.2, crater_km * 12.0);
-        const thermal_km = estimateThermalRadiusKm(ke);
-        const seismic_mag = estimateSeismicMagnitude(ke);
+        const thermal_km = estimateThermalRadiusKm(ke, angleDeg);
+        const seismic_mag = estimateSeismicMagnitude(ke, angleDeg);
 
         return {
           diameter_m, ke, airburst_km: 0, crater_km, severe_km, heavy_km,
@@ -966,6 +1060,9 @@
             latR.value = Math.max(-90, Math.min(90, lat));
             lngR.value = Math.max(-180, Math.min(180, lng));
             updateDisplays();
+            // Reset country and state selections
+            countrySel.value = '';
+            stateSel.innerHTML = '<option value="">Select State</option>';
             simulate(true);
           } else {
             console.warn('Invalid cartographic from click');
@@ -1068,6 +1165,8 @@
           let mass = Number(massR.value);
           let speed = Number(speedR.value);
           let density = Number(densityR.value);
+          let angle = Number(angleR.value);
+          let deflectAngle = Number(deflectAngleR.value);
           let lat = Number(latR.value);
           let lng = Number(lngR.value);
 
@@ -1075,6 +1174,8 @@
           mass = isFinite(mass) ? mass : 1e9;
           speed = isFinite(speed) ? speed : 20000;
           density = isFinite(density) && density > 0 ? density : 3000;
+          angle = isFinite(angle) ? Math.max(10, Math.min(90, angle)) : 45;
+          deflectAngle = isFinite(deflectAngle) ? Math.max(0, Math.min(30, deflectAngle)) : 0;
           lat = isFinite(lat) ? Math.max(-90, Math.min(90, lat)) : 0;
           lng = isFinite(lng) ? Math.max(-180, Math.min(180, lng)) : 0;
 
@@ -1092,9 +1193,9 @@
             fragPct = 0;
           }
 
-          console.log('Simulation inputs:', { mass, speed, density, lat, lng });
+          console.log('Simulation inputs:', { mass, speed, density, angle, deflectAngle, lat, lng });
 
-          const res = computeImpact(mass, speed, density, deflectPct, fragPct);
+          const res = computeImpact(mass, speed, density, angle, deflectAngle, deflectPct, fragPct);
 
           astDiaEl.textContent = fmtFixed(res.diameter_m, 1);
           keValEl.textContent = fmt(parseFloat(res.ke.toFixed(0)));
@@ -1179,7 +1280,7 @@
       $('simulateBtn').addEventListener('click', () => simulate(false));
       $('resetBtn').addEventListener('click', () => clearImpact());
       $('animateBtn').addEventListener('click', () => simulate(true));
-      [massR, speedR, densityR, latR, lngR, deflectMethod].forEach(el => el.addEventListener('input', () => debouncedSimulate(false)));
+      [massR, speedR, densityR, angleR, deflectAngleR, latR, lngR, deflectMethod].forEach(el => el.addEventListener('input', () => debouncedSimulate(false)));
       simulate(false);
 
       document.addEventListener('keydown', (e) => {
